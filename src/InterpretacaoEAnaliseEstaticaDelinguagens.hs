@@ -356,15 +356,15 @@ setarX = SetAttr (Var "p") "x" (Lit 15)
 lerXdeNovo = GetAttr (Var "p") "x"
 
 --teste Get
-testeGet =
-    Seq instanciaP
-        lerX
+---testeGet =
+---    Seq instanciaP
+---        lerX
 --teste set
-testeSet =
-    Seq instanciaP
-      (Seq
-        setarX
-        lerXdeNovo)
+---testeSet =
+---    Seq instanciaP
+---      (Seq
+---        setarX
+---        lerXdeNovo)
 
 
 
@@ -373,7 +373,7 @@ testeSet =
 main :: IO ()
 main = do
     putStrLn "Teste do New:"
-    testOO testeNew
+---    testOO testeNew
 
     putStrLn "\nTeste do while:"
     testOO testeWhile
