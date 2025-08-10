@@ -141,6 +141,12 @@ data Termo = Var Id
            | Apl Termo Termo
            | Atr Id Termo
            | Seq Termo Termo
+            -- OO:
+           | NewClasse Id [(Id, Termo)]          -- instanciar uma classe com atributos iniciais
+           | While Termo Termo                   -- while (cond) { corpo } 
+           | GetAttr Termo Id                    -- lê atributo
+           | SetAttr Termo Id Termo              -- modifica atributo
+           
 
 -- A aplicação "(lambda x . + x 2) 3" seria
 termo1 = (Apl (Lam "x" (Som (Var "x") (Lit 2))) (Lit 3))
@@ -171,7 +177,10 @@ sq3 = (Seq (Atr "y" (Som (Atr "z" (Lit 5)) (Var "z"))) termo3)
 
 data Valor = Num Double
            | Fun (Valor -> Estado -> (Valor,Estado))
+           | Objeto [(Id, Valor)] [(Id, Valor)]   -- atributos, métodos
+           | Classe [(Id, Valor)] [(Id, Valor)]   -- atributos default, métodos      
            | Erro
+        
 
 type Estado = [(Id,Valor)]
 
@@ -200,6 +209,45 @@ int a (Atr x t) e = (v1, wr (x,v1) e1)
 int a (Seq t u) e = int a u e1
                     where (_,e1) = int a t e
 
+--new
+int a (NewClasse _ attrs) e =
+    let (valAttrs, eFinal) = foldl
+            (\(acc, est) (nome, termo) ->
+                let (v, est') = int a termo est
+                in (acc ++ [(nome, v)], est'))
+            ([], e) attrs
+    in (Objeto valAttrs [], eFinal)
+
+--while
+int a (While cond corpo) e =
+    case int a cond e of
+        (Num v, e1) | v /= 0 ->  -- qualquer valor ≠ 0 é "true"
+            let (_, e2) = int a corpo e1
+            in int a (While cond corpo) e2
+        (Num 0, e1) -> (Num 0, e1) -- falso
+        _           -> (Erro, e)
+
+--get 
+int a (GetAttr obj nomeAttr) e =
+    case int a obj e of
+        (Objeto attrs _, e') ->
+            case lookup nomeAttr attrs of
+                Just v  -> (v, e')
+                Nothing -> (Erro, e')
+        _ -> (Erro, e)
+
+--set
+int a (SetAttr (Var nomeVar) nomeAttr termoValor) e =
+    case lookup nomeVar e of
+        Just (Objeto attrs mets) ->
+            let (novoValor, e1) = int a termoValor e
+                novosAtributos  = (nomeAttr, novoValor)
+                                : filter ((/= nomeAttr) . fst) attrs
+                novoObjeto      = Objeto novosAtributos mets
+                e2              = (nomeVar, novoObjeto)
+                                 : filter ((/= nomeVar) . fst) e1
+            in (novoObjeto, e2)
+        _ -> (Erro, e)
 
 -- search :: Eq a => a -> [(a, Valor)] -> Valor
 
@@ -233,3 +281,69 @@ instance Show Valor where
    show (Num x) = show x
    show Erro = "Erro"
    show (Fun f) = "Função"
+   show (Objeto attrs mets) = "Objeto " ++ show attrs
+   show (Classe attrs mets) = "Classe " ++ show attrs
+
+-- Função que retorna o output do interpretador ao realizarmos testes.
+testOO :: Termo -> IO ()
+testOO t =
+    let (resultado, novoEstado) = int [] t []
+    in do
+        putStrLn $ "Resultado: " ++ show resultado
+        putStrLn $ "Novo estado: " ++ show novoEstado
+
+-- Teste do New
+testeNew :: Termo
+testeNew =
+    Seq
+        (Atr "p" (NewClasse "Ponto" [("x", Lit 10), ("y", Lit 20)]))
+        (GetAttr (Var "p") "x")
+
+-- teste do while
+testeWhile :: Termo
+testeWhile =
+    Seq
+        (Atr "x" (Lit 0))
+        (Seq
+            (While (Som (Lit 1) (Som (Var "x") (Lit (-5))))
+                (Atr "x" (Som (Var "x") (Lit 1)))          
+            )
+            (Var "x") 
+        )
+
+
+-- Instância para poder testar get e set
+instanciaP = Atr "p" (NewClasse "Ponto" [("x", Lit 10), ("y", Lit 20)])
+lerX = GetAttr (Var "p") "x"
+setarX = SetAttr (Var "p") "x" (Lit 15)
+lerXdeNovo = GetAttr (Var "p") "x"
+
+--teste Get
+testeGet =
+    Seq instanciaP
+        lerX
+--teste set
+testeSet =
+    Seq instanciaP
+      (Seq
+        setarX
+        lerXdeNovo)
+
+
+
+
+-- Função principal
+main :: IO ()
+main = do
+    putStrLn "Teste do New:"
+    testOO testeNew
+
+    putStrLn "\nTeste do while:"
+    testOO testeWhile
+
+    putStrLn "\nTeste do get:"
+    testOO testeGet
+
+    putStrLn "\nTeste do set:"
+    testOO testeSet
+    
