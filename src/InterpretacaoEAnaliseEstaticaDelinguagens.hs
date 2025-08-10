@@ -141,11 +141,16 @@ data Termo = Var Id
            | Apl Termo Termo
            | Atr Id Termo
            | Seq Termo Termo
+           | For Termo Termo Termo Termo -- inicio, condicao, final, corpo
+
             -- OO:
-           | NewClasse Id [(Id, Termo)]          -- instanciar uma classe com atributos iniciais
+           | NewClasse Id [(Id, Termo)] [(Id, Termo)] -- instanciar uma classe com atributos e metodos iniciais
            | While Termo Termo                   -- while (cond) { corpo } 
            | GetAttr Termo Id                    -- lê atributo
            | SetAttr Termo Id Termo              -- modifica atributo
+           | CallMethod Termo Id Termo  
+           | DefFunc Id Id Termo
+           
            
 
 -- A aplicação "(lambda x . + x 2) 3" seria
@@ -209,14 +214,27 @@ int a (Atr x t) e = (v1, wr (x,v1) e1)
 int a (Seq t u) e = int a u e1
                     where (_,e1) = int a t e
 
---new
-int a (NewClasse _ attrs) e =
-    let (valAttrs, eFinal) = foldl
-            (\(acc, est) (nome, termo) ->
-                let (v, est') = int a termo est
-                in (acc ++ [(nome, v)], est'))
-            ([], e) attrs
-    in (Objeto valAttrs [], eFinal)
+int a (For init cond final corpo) e =
+    let (_, e1) = int a init e  
+    in loop e1
+  where
+    loop estado =
+        case int a cond estado of
+            (Num v, eCond) | v /= 0 -> 
+                let (_, eBody) = int a corpo eCond
+                    (_, eFinal) = int a final eBody
+                in loop eFinal
+            (Num 0, eCond) -> (Num 0, eCond)
+            _ -> (Erro, estado)                    
+
+--new (precisa colocar os metodos)
+--int a (NewClasse _ attrs) e =
+--    let (valAttrs, eFinal) = foldl
+--            (\(acc, est) (nome, termo) ->
+--                let (v, est') = int a termo est
+--                in (acc ++ [(nome, v)], est'))
+--            ([], e) attrs
+--    in (Objeto valAttrs [], eFinal)
 
 --while
 int a (While cond corpo) e =
@@ -248,6 +266,25 @@ int a (SetAttr (Var nomeVar) nomeAttr termoValor) e =
                                  : filter ((/= nomeVar) . fst) e1
             in (novoObjeto, e2)
         _ -> (Erro, e)
+
+--metodos
+
+-- chamada de método: obj.metodo(arg)
+int a (CallMethod obj nomeMetodo arg) e =
+    case int a obj e of
+        (Objeto attrs mets, e1) ->
+            case lookup nomeMetodo mets of
+                Just (Fun f) ->
+                    let (valArg, e2) = int a arg e1
+                    in f valArg e2
+                _ -> (Erro, e1)
+        _ -> (Erro, e)
+
+int a (DefFunc nome param corpo) e =
+    let func = Fun (\v est -> int ((param, v) : (a ++ e)) corpo est)
+        e'   = wr (nome, func) e
+    in (func, e')
+
 
 -- search :: Eq a => a -> [(a, Valor)] -> Valor
 
@@ -293,11 +330,11 @@ testOO t =
         putStrLn $ "Novo estado: " ++ show novoEstado
 
 -- Teste do New
-testeNew :: Termo
-testeNew =
-    Seq
-        (Atr "p" (NewClasse "Ponto" [("x", Lit 10), ("y", Lit 20)]))
-        (GetAttr (Var "p") "x")
+---testeNew :: Termo
+---testeNew =
+    ---Seq
+        ---(Atr "p" (NewClasse "Ponto" [("x", Lit 10), ("y", Lit 20)]))
+        ---(GetAttr (Var "p") "x")
 
 -- teste do while
 testeWhile :: Termo
@@ -313,7 +350,7 @@ testeWhile =
 
 
 -- Instância para poder testar get e set
-instanciaP = Atr "p" (NewClasse "Ponto" [("x", Lit 10), ("y", Lit 20)])
+---instanciaP = Atr "p" (NewClasse "Ponto" [("x", Lit 10), ("y", Lit 20)])
 lerX = GetAttr (Var "p") "x"
 setarX = SetAttr (Var "p") "x" (Lit 15)
 lerXdeNovo = GetAttr (Var "p") "x"
