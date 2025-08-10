@@ -1,359 +1,413 @@
 module InterpretacaoEAnaliseEstaticaDelinguagens where
 
--- Interpretadores recebem programas como entrada. Strings como
---
--- "def inc = (lambda x . + x 1); def v = + 3 2; def resultado = inc v"
---
--- são dadas como entrada, e a saída é o resultado da execução.
---
--- Para interpretar programas, precisamos representr os programas de forma
--- abstrata, como uma árvore resultante do processo de parsing. Para
--- representar os programas de uma linguagem funcional simples,
--- temos o seguinte (identificador, número, lambda exp, aplicação, definição
--- e programa).
+-- ==========================
+-- Linguagem funcional simples
+-- ==========================
 
 type Id = String
 type Numero = Double
-data TermoLinFun = Identifier Id
-                 | Literal Numero
-                 | Lambda Id TermoLinFun
-                 | Aplicacao TermoLinFun TermoLinFun
+
+data TermoLinFun
+  = Identifier Id
+  | Literal Numero
+  | Lambda Id TermoLinFun
+  | Aplicacao TermoLinFun TermoLinFun
+
 data Definicao = Def Id TermoLinFun
-type Programa = [Definicao]
-
-
--- Aplicacao String TermoLinFun TermoLinFun
--- seria específico para aplicações binárias.
---
--- Melhor como acima do que como acima
--- type Definicao = (String,TermoLinFun)
-
-
--- Por exemplo, o programa abaixo
---
--- def inc = (lambda x . + x 1); def v = + 3 2; def resultado = inc v
---
--- seria representado como
+type Programa   = [Definicao]
 
 def1 = Def "inc" (Lambda "x" (Aplicacao (Aplicacao (Identifier "+") (Identifier "x")) (Literal 1)))
-def2 = Def "v" (Aplicacao (Aplicacao (Identifier "+") (Literal 3)) (Literal 2))
+def2 = Def "v"   (Aplicacao (Aplicacao (Identifier "+") (Literal 3)) (Literal 2))
 def3 = Def "resultado" (Aplicacao (Identifier "inc") (Identifier "v"))
 prog1 = [def1,def2,def3]
 
-
--- O resultado da interpretação seria um dos seguintes, já que a
--- linguagem manipula apenas números e funções.
-
-data ValorFun = Numero Double
-              | Funcao (ValorFun -> ValorFun)
-              | Excecao
+data ValorFun
+  = Numero Double
+  | Funcao (ValorFun -> ValorFun)
+  | Excecao
 
 instance Show ValorFun where
-    show (Numero n) = show n
-    show (Funcao f) = "Function definition cannot be printed!"
-    show Excecao = "Excecao durante a execucao do interpretador"
+  show (Numero n) = show n
+  show (Funcao _) = "Function definition cannot be printed!"
+  show Excecao    = "Excecao durante a execucao do interpretador"
 
-
--- A função que implementa o interpretador dos termos precisa receber como parâmetro um
--- ambiente, contendo as funções pré-definidas, e as definidas pelo programador.
-
-type Ambiente = [(Id,ValorFun)]
-
--- No nosso caso, o ambiente teria apenas a definição de "+".
-
-ambientesimples = [("+",Funcao (\x -> (Funcao (\y -> somaValorFun x y))))]
+type AmbienteFun = [(Id,ValorFun)]
+ambientesimples  = [("+",Funcao (\x -> (Funcao (\y -> somaValorFun x y))))]
 
 somaValorFun (Numero x) (Numero y) = Numero (x+y)
 somaValorFun _ _ = Excecao
 
+intTermo a (Identifier i)        = getValor i a
+intTermo _ (Literal l)           = Numero l
+intTermo a (Lambda i t)          = Funcao (\v -> intTermo ((i,v):a) t)
+intTermo a (Aplicacao t1 t2)     = aplica v1 v2
+  where v1 = intTermo a t1
+        v2 = intTermo a t2
 
--- Temos agora duas funções de interpretação, uma para termos e uma
--- para programas. A de termos simplesmente lê o ambiente. A de programa
--- propaga alterações no ambiente, para acumular as funções definidas.
+intPrograma _ []                 = Excecao
+intPrograma a [(Def _ t)]        = intTermo a t
+intPrograma a ((Def i t):ds)     = intPrograma ((i,v):a) ds
+  where v = intTermo a t
 
-intTermo a (Identifier i) = getValor i a
-intTermo a (Literal l) = Numero l
-intTermo a (Lambda i t) = Funcao (\v -> intTermo ((i,v):a) t)
-intTermo a (Aplicacao t1 t2) = aplica v1 v2
-                                where v1 = intTermo a t1
-                                      v2 = intTermo a t2
-
-intPrograma a [] = Excecao
-intPrograma a [(Def i t)] = intTermo a t
-intPrograma a ((Def i t):ds) = intPrograma ((i,v):a) ds
-                               where v = intTermo a t
-
-getValor i [] = Excecao
+getValor _ [] = Excecao
 getValor i ((j,v):l) = if i == j then v else getValor i l
 
 aplica (Funcao f) v = f v
 aplica _ _ = Excecao
 
 
--- Exemplo de reescrita
---
--- intPrograma as [Def "x" (Aplicacao (Aplicacao (Identifier "+")
---                                               (Identifier "x"))
---                                    (Literal 1.0))] =
--- intTermo as (Aplicacao (Aplicacao (Identifier "+")
---                                   (Identifier "x"))
---                        (Literal 1.0)) =
--- aplica v1 v2
--- aplica (Funcao (\y -> somaValorFun Excecao y)) (Numero 1.0) =
--- (\y -> somaValorFun Excecao y) (Numero 1.0) =
--- somaValorFun Excecao (Numero 1.0) =
--- Excecao
---
--- v1 = intTermo as (Aplicacao (Identifier "+") (Identifier "x"))
---    = aplica v11 v12
---    = aplica (Funcao (\x -> (Funcao (\y -> somaValorFun x y))))) Excecao
---    = Funcao (\y -> somaValorFun Excecao y)
---
--- v11 = intTermo as Identifier "+" =
--- Funcao (\x -> (Funcao (\y -> somaValorFun x y))))
---
--- v12 = intTermo as Identifier "x" =
--- getValor "x" as =
--- Excecao
---
--- v2 = intTermo as (Literal 1.0)
--- = Numero 1.0
+-- ==========================
+-- Linguagem com estado + OO
+-- ==========================
 
--- Nas linguagens com atribuição (o valor de uma variável pode mudar ao
--- longo da execução), precisamos lidar com a noção de estado. Além do
--- ambiente contendo definições imutáveis, precisamos de uma noção de estado, ou
--- memória, para armazenar os valores das variáveis em um determinado ponto da
--- execução. A função de interpretação não só recebe o estado como parâmetro.
--- Ela também retorna como resultado o valor da interpretação e o novo estado,
--- contendo as alterações nos valores das variáveis.
+data Termo
+  = Var Id
+  | Lit Numero
+  | Som Termo Termo
+  | Lam Id Termo
+  | Apl Termo Termo
+  | Atr Id Termo
+  | Seq Termo Termo
+  | For Termo Termo Termo Termo           -- inicio, condicao, final, corpo
+  | NewClasse Id [(Id, Termo)] [(Id, Termo)] -- legado/manual (opcional)
+  | While Termo Termo
+  | GetAttr Termo Id
+  | SetAttr Termo Id Termo
+  | CallMethod Termo Id Termo
+  | DefFunc Id Id Termo
+  -- ==== NOVOS ====
+  | DefClasse Id (Maybe Id) [(Id, Termo)] [(Id, Id, Termo)] -- nome, pai, attrs default, métodos (nome, param, corpo)
+  | New Id [(Id, Termo)]                                    -- instância por nome da classe + overrides de atributos
+  deriving (Eq, Show)
 
--- Para simplifcar, temos apenas termos na linguagem, incluindo atribuições
--- (que podem representar tanto definições no sentido do interpretador anterior
--- quanto mudanças nos valores de variáveis) e composição sequencial (como o ";"
--- em Java, que entre outras coisas faz o papel da lista de definições da linguagem
--- anterior). Representamos, por simplicidade, soma como um termo específico da
--- linguagem.
-
-data Termo = Var Id
-           | Lit Numero
-           | Som Termo Termo
-           | Lam Id Termo
-           | Apl Termo Termo
-           | Atr Id Termo
-           | Seq Termo Termo
-           | For Termo Termo Termo Termo -- inicio, condicao, final, corpo
-
-            -- OO:
-           | NewClasse Id [(Id, Termo)] [(Id, Termo)] -- instanciar uma classe com atributos e metodos iniciais
-           | While Termo Termo                   -- while (cond) { corpo } 
-           | GetAttr Termo Id                    -- lê atributo
-           | SetAttr Termo Id Termo              -- modifica atributo
-           | CallMethod Termo Id Termo  
-           | DefFunc Id Id Termo
-           
-           
-
--- A aplicação "(lambda x . + x 2) 3" seria
+-- Exemplos antigos
 termo1 = (Apl (Lam "x" (Som (Var "x") (Lit 2))) (Lit 3))
-
--- A aplicação "(lambda x . + x y) 3" seria
 termo2 = (Apl (Lam "x" (Som (Var "x") (Var "y"))) (Lit 3))
-
--- A composição sequencial "y := (lambda x . + x y) 3 ; (lambda x . + x y) 3" seria
 termo3 = (Seq (Atr "y" termo2) termo2)
+sq1    = (Seq (Atr "y" (Lit 3)) termo2)
+sq2    = (Seq (Atr "y" (Lit 3)) termo3)
+sq3    = (Seq (Atr "y" (Som (Atr "z" (Lit 5)) (Var "z"))) termo3)
 
--- A composição sequencial "y := 3 ; (lambda x . + x y) 3" seria
-sq1 = (Seq (Atr "y" (Lit 3)) termo2)
+data Valor
+  = Num Double
+  | Fun (Valor -> Estado -> (Valor,Estado))
+  | Objeto [(Id, Valor)] [(Id, Valor)]            -- atributos, métodos (métodos são Fun)
+  | Classe (Maybe Id) [(Id, Valor)] [(Id, Valor)] -- pai, attrs default, métodos (métodos são Fun esperando `self` primeiro)
+  | Erro
 
--- A composição sequencial "y := 3 ; y := (lambda x . + x y) 3 ; (lambda x . + x y) 3" seria
-sq2 = (Seq (Atr "y" (Lit 3)) termo3)
+type Ambiente = [(Id,Valor)]
+type Estado   = [(Id,Valor)]
 
--- A composição sequencial "y := (z := 5) + z ; y := (lambda x . + x y) 3 ; (lambda x . + x y) 3" seria
-sq3 = (Seq (Atr "y" (Som (Atr "z" (Lit 5)) (Var "z"))) termo3)
+instance Show Valor where
+  show (Num x)              = show x
+  show Erro                 = "Erro"
+  show (Fun _)              = "Função"
+  show (Objeto attrs _)     = "Objeto " ++ show attrs
+  show (Classe pai attrs _) = "Classe " ++ show attrs ++ " (pai=" ++ show pai ++ ")"
 
+-- ==========================
+-- Interpretador
+-- ==========================
 
-
--- O resultado da interpretação seria um dos seguintes, já que a
--- linguagem manipula apenas números e funções. Como as funções
--- podem acessar e modificar variáveis que mudam de valor ao longo
--- da execução, é necessário receber não só o argumento da função,
--- e retornar seu resultado. É preciso receber também o estado atual,
--- e retornar o novo estado modificado pela execução da função.
-
-data Valor = Num Double
-           | Fun (Valor -> Estado -> (Valor,Estado))
-           | Objeto [(Id, Valor)] [(Id, Valor)]   -- atributos, métodos
-           | Classe [(Id, Valor)] [(Id, Valor)]   -- atributos default, métodos      
-           | Erro
-        
-
-type Estado = [(Id,Valor)]
-
-
--- int :: [(Id, Valor)] -> Termo -> [(Id, Valor)] -> (Valor, [(Id, Valor)])
--- int :: Ambiente -> Termo -> Estado -> (Valor, Estado)
---
+-- Busca primeiro no ambiente (a), depois no estado (e)
+int :: Ambiente -> Termo -> Estado -> (Valor, Estado)
 
 int a (Var x) e = (search x (a ++ e), e)
-
-int a (Lit n) e = (Num n, e)
+int _ (Lit n) e = (Num n, e)
 
 int a (Som t u) e = (somaVal v1 v2, e2)
-                    where (v1,e1) = int a t e
-                          (v2,e2) = int a u e1
+  where (v1,e1) = int a t e
+        (v2,e2) = int a u e1
 
 int a (Lam x t) e = (Fun (\v -> int ((x,v):a) t), e)
 
 int a (Apl t u) e = app v1 v2 e2
-                    where (v1,e1) = int a t e
-                          (v2,e2) = int a u e1
+  where (v1,e1) = int a t e
+        (v2,e2) = int a u e1
 
 int a (Atr x t) e = (v1, wr (x,v1) e1)
-                    where (v1,e1) = int a t e
+  where (v1,e1) = int a t e
 
 int a (Seq t u) e = int a u e1
-                    where (_,e1) = int a t e
+  where (_,e1) = int a t e
 
-int a (For init cond final corpo) e =
-    let (_, e1) = int a init e  
-    in loop e1
+int a (For initT condT finalT corpoT) e =
+  let (_, e1) = int a initT e
+  in loop e1
   where
     loop estado =
-        case int a cond estado of
-            (Num v, eCond) | v /= 0 -> 
-                let (_, eBody) = int a corpo eCond
-                    (_, eFinal) = int a final eBody
-                in loop eFinal
-            (Num 0, eCond) -> (Num 0, eCond)
-            _ -> (Erro, estado)                    
+      case int a condT estado of
+        (Num v, eCond) | v /= 0 ->
+          let (_, eBody)  = int a corpoT eCond
+              (_, eFinal) = int a finalT eBody
+          in loop eFinal
+        (Num 0, eCond)   -> (Num 0, eCond)
+        _                -> (Erro, estado)
 
---new (precisa colocar os metodos)
---int a (NewClasse _ attrs) e =
---    let (valAttrs, eFinal) = foldl
---            (\(acc, est) (nome, termo) ->
---                let (v, est') = int a termo est
---                in (acc ++ [(nome, v)], est'))
---            ([], e) attrs
---    in (Objeto valAttrs [], eFinal)
-
---while
+-- while
 int a (While cond corpo) e =
-    case int a cond e of
-        (Num v, e1) | v /= 0 ->  -- qualquer valor ≠ 0 é "true"
-            let (_, e2) = int a corpo e1
-            in int a (While cond corpo) e2
-        (Num 0, e1) -> (Num 0, e1) -- falso
-        _           -> (Erro, e)
+  case int a cond e of
+    (Num v, e1) | v /= 0 ->
+      let (_, e2) = int a corpo e1
+      in int a (While cond corpo) e2
+    (Num 0, e1) -> (Num 0, e1)
+    _           -> (Erro, e)
 
---get 
+-- get
 int a (GetAttr obj nomeAttr) e =
-    case int a obj e of
-        (Objeto attrs _, e') ->
-            case lookup nomeAttr attrs of
-                Just v  -> (v, e')
-                Nothing -> (Erro, e')
-        _ -> (Erro, e)
+  case int a obj e of
+    (Objeto attrs _, e') ->
+      case lookup nomeAttr attrs of
+        Just v  -> (v, e')
+        Nothing -> (Erro, e')
+    _ -> (Erro, e)
 
---set
+-- set (atualiza no estado se a var existe lá; senão, atualiza o objeto "em memória")
 int a (SetAttr (Var nomeVar) nomeAttr termoValor) e =
-    case lookup nomeVar e of
-        Just (Objeto attrs mets) ->
-            let (novoValor, e1) = int a termoValor e
-                novosAtributos  = (nomeAttr, novoValor)
-                                : filter ((/= nomeAttr) . fst) attrs
-                novoObjeto      = Objeto novosAtributos mets
-                e2              = (nomeVar, novoObjeto)
-                                 : filter ((/= nomeVar) . fst) e1
-            in (novoObjeto, e2)
-        _ -> (Erro, e)
+  case (lookup nomeVar e, search nomeVar (a ++ e)) of
+    -- Caso 1: a variável está no estado -> persiste no estado
+    (Just (Objeto attrs mets), _) ->
+      let (novoValor, e1) = int a termoValor e
+          novosAtributos  = (nomeAttr, novoValor)
+                          : filter ((/= nomeAttr) . fst) attrs
+          novoObjeto      = Objeto novosAtributos mets
+          e2              = (nomeVar, novoObjeto)
+                          : filter ((/= nomeVar) . fst) e1
+      in (novoObjeto, e2)
 
---metodos
+    -- Caso 2: não está no estado, mas resolve para Objeto no ambiente (ex.: "this")
+    (Nothing, Objeto attrs mets) ->
+      let (novoValor, e1) = int a termoValor e
+          novosAtributos  = (nomeAttr, novoValor)
+                          : filter ((/= nomeAttr) . fst) attrs
+          novoObjeto      = Objeto novosAtributos mets
+      in (novoObjeto, e1)
+
+    -- Demais casos: erro
+    _ -> (Erro, e)
 
 -- chamada de método: obj.metodo(arg)
 int a (CallMethod obj nomeMetodo arg) e =
-    case int a obj e of
-        (Objeto attrs mets, e1) ->
-            case lookup nomeMetodo mets of
-                Just (Fun f) ->
-                    let (valArg, e2) = int a arg e1
-                    in f valArg e2
-                _ -> (Erro, e1)
-        _ -> (Erro, e)
+  case int a obj e of
+    (Objeto attrs mets, e1) ->
+      case lookup nomeMetodo mets of
+        Just (Fun fSelf) ->
+          -- aplica `self` primeiro
+          let (vFunArg, eSelf) = fSelf (Objeto attrs mets) e1
+          in case vFunArg of
+               Fun fArg ->
+                 let (valArg, e2) = int a arg eSelf
+                 in fArg valArg e2
+               _ -> (Erro, eSelf)
+        _ -> (Erro, e1)
+    _ -> (Erro, e)
 
+-- define função solta e salva no estado
 int a (DefFunc nome param corpo) e =
-    let func = Fun (\v est -> int ((param, v) : (a ++ e)) corpo est)
-        e'   = wr (nome, func) e
-    in (func, e')
+  let func = Fun (\v est -> int ((param, v) : (a ++ e)) corpo est)
+      e'   = wr (nome, func) e
+  in (func, e')
 
+-- =========
+-- OO legado (opcional): NewClasse "manual" sem herança
+-- =========
+int a (NewClasse _ attrs mets) e =
+  let (valAttrs, eFinal) =
+        foldl
+          (\(acc, est) (nome, termo) ->
+              let (v, est') = int a termo est
+              in (acc ++ [(nome, v)], est'))
+          ([], e) attrs
+      (valMets, eFinal2) =
+        foldl
+          (\(acc, est) (nome, termo) ->
+              let (v, est') = int a termo est
+              in (acc ++ [(nome, v)], est'))
+          ([], eFinal) mets
+  in (Objeto valAttrs valMets, eFinal2)
 
--- search :: Eq a => a -> [(a, Valor)] -> Valor
+-- =========
+-- NOVO: classes e herança (AS CLÁUSULAS DE `int` DEVEM VIR AQUI!)
+-- =========
 
-search i [] = Erro
+-- definição de classe no estado
+int a (DefClasse nome maybePai attrsT metsT) e =
+  let -- avalia atributos default
+      (attrsV, e1) =
+        foldl
+          (\(acc, est) (k, t) ->
+              let (v, est') = int a t est
+              in (acc ++ [(k, v)], est'))
+          ([], e) attrsT
+
+      -- compila métodos (nome, param, corpo) -> (nome, Fun que espera `self`)
+      metsV =
+        [ (mNome, buildMethod a mParam mCorpo)
+        | (mNome, mParam, mCorpo) <- metsT
+        ]
+
+      classe = Classe maybePai attrsV metsV
+      e2     = wr (nome, classe) e1
+  in (classe, e2)
+
+-- instanciação por nome de classe (com herança)
+int a (New nomeClasse initsT) e =
+  case resolveClassChain a e nomeClasse of
+    Nothing -> (Erro, e)
+    Just chain ->
+      let (baseAttrs, baseMets) = collectClassAM chain
+
+          -- avalia overrides passados no New
+          (initAttrs, e1) =
+            foldl
+              (\(acc, est) (k, t) ->
+                  let (v, est') = int a t est
+                  in (acc ++ [(k, v)], est'))
+              ([], e)
+              initsT
+
+          -- opcional: registrar a classe no objeto
+          classTag = ("__class", Num 0)
+
+          finalAttrs = mergeKV (classTag:initAttrs) baseAttrs
+          finalMets  = baseMets
+      in (Objeto finalAttrs finalMets, e1)
+
+-- =========
+-- NOVO: classes e herança
+-- =========
+
+-- mescla por chave (filho sobrescreve pai)
+mergeKV :: [(Id, Valor)] -> [(Id, Valor)] -> [(Id, Valor)]
+mergeKV filho pai =
+  let keys = map fst filho
+  in filho ++ filter (\(k,_) -> k `notElem` keys) pai
+
+-- resolve cadeia de herança (do topo até a classe pedida)
+resolveClassChain :: Ambiente -> Estado -> Id -> Maybe [Valor]
+resolveClassChain a e nome = go nome []
+  where
+    go n acc = case search n (a ++ e) of
+      Classe maybePai attrs mets ->
+        case maybePai of
+          Nothing     -> Just (reverse (Classe maybePai attrs mets : acc))
+          Just paiNom -> go paiNom (Classe maybePai attrs mets : acc)
+      _ -> Nothing
+
+-- coleta attrs/métodos acumulados (pai -> ... -> filho)
+collectClassAM :: [Valor] -> ([(Id,Valor)], [(Id,Valor)])
+collectClassAM vs =
+  foldl
+    (\(accA, accM) v -> case v of
+        Classe _ a m -> (mergeKV a accA, mergeKV m accM)
+        _            -> (accA, accM))
+    ([],[])
+    vs
+
+-- constrói método que captura `this` e depois o argumento
+buildMethod :: Ambiente -> Id -> Termo -> Valor
+buildMethod a param corpo =
+  -- Fun que espera `self`; ao aplicar, devolve Fun que espera `arg`
+  Fun (\self est1 ->
+        ( Fun (\arg est2 ->
+                int (("this", self):(param, arg):a) corpo est2
+              )
+        , est1))
+
+-- =========
+-- Primitivas de apoio
+-- =========
+
+search :: Eq a => a -> [(a, Valor)] -> Valor
+search _ [] = Erro
 search i ((j,v):l) = if i == j then v else search i l
 
--- somaVal :: Valor -> Valor -> Valor
-
+somaVal :: Valor -> Valor -> Valor
 somaVal (Num x) (Num y) = Num (x+y)
 somaVal _ _ = Erro
 
--- app :: Valor -> Valor -> Estado -> (Valor, Estado)
-
+app :: Valor -> Valor -> Estado -> (Valor, Estado)
 app (Fun f) v e = f v e
-app _ _ e = (Erro, e)
+app _ _ e       = (Erro, e)
 
--- wr :: Eq a => (a, t) -> [(a, t)] -> [(a, t)]
+wr :: Eq a => (a, t) -> [(a, t)] -> [(a, t)]
+wr (i,v) []         = [(i,v)]
+wr (i,v) ((j,u):l)  = if (i == j) then (j,v):l else (j,u) : wr (i,v) l
 
-wr (i,v) [] = [(i,v)]
-wr (i,v) ((j,u):l) = if (i == j) then (j,v):l else [(j,u)] ++ (wr (i,v) l)
-
-
--- Chamando o interpretador com o ambiente e a memória vazios.
-
+-- atalho
+at :: Termo -> (Valor, Estado)
 at t = int [] t []
 
--- Se soma não fosse um termo específico da linguagem:
--- at t = int [("+",Fun (\x -> \e -> (Fun (\y -> \e2 -> (somaVal x y,e2),e)))] t []
+-- ==========================
+-- Testes
+-- ==========================
 
-instance Show Valor where
-   show (Num x) = show x
-   show Erro = "Erro"
-   show (Fun f) = "Função"
-   show (Objeto attrs mets) = "Objeto " ++ show attrs
-   show (Classe attrs mets) = "Classe " ++ show attrs
-
--- Função que retorna o output do interpretador ao realizarmos testes.
-testOO :: Termo -> IO ()
-testOO t =
-    let (resultado, novoEstado) = int [] t []
-    in do
-        putStrLn $ "Resultado: " ++ show resultado
-        putStrLn $ "Novo estado: " ++ show novoEstado
-
--- Teste do New
----testeNew :: Termo
----testeNew =
-    ---Seq
-        ---(Atr "p" (NewClasse "Ponto" [("x", Lit 10), ("y", Lit 20)]))
-        ---(GetAttr (Var "p") "x")
-
--- teste do while
+-- while original
 testeWhile :: Termo
 testeWhile =
-    Seq
-        (Atr "x" (Lit 0))
+  Seq
+    (Atr "x" (Lit 0))
+    (Seq
+      (While (Som (Lit 1) (Som (Var "x") (Lit (-5))))
+        (Atr "x" (Som (Var "x") (Lit 1)))
+      )
+      (Var "x")
+    )
+
+-- Definições de classe e herança
+-- class Ponto { x=0, y=0; move(dx) { this.x := this.x + dx } }
+defClassePonto :: Termo
+defClassePonto =
+  DefClasse "Ponto" Nothing
+    [("x", Lit 0), ("y", Lit 0)]
+    [ ("move", "dx",
+        SetAttr (Var "this") "x" (Som (GetAttr (Var "this") "x") (Var "dx"))
+      )
+    ]
+
+-- class Ponto3D extends Ponto { z=0; moveZ(dz) { this.z := this.z + dz } }
+defClassePonto3D :: Termo
+defClassePonto3D =
+  DefClasse "Ponto3D" (Just "Ponto")
+    [("z", Lit 0)]
+    [ ("moveZ", "dz",
+        SetAttr (Var "this") "z" (Som (GetAttr (Var "this") "z") (Var "dz"))
+      )
+    ]
+
+-- new Ponto3D { x=10, y=20 }
+mkP :: Termo
+mkP = New "Ponto3D" [("x", Lit 10), ("y", Lit 20)]
+
+-- p := new Ponto3D(...);
+-- p := p.move(5);
+-- p := p.moveZ(7);
+-- lê z (deve dar 7)
+testeClasseHeranca :: Termo
+testeClasseHeranca =
+  Seq
+    defClassePonto
+    (Seq
+      defClassePonto3D
+      (Seq
+        (Atr "p" mkP)
         (Seq
-            (While (Som (Lit 1) (Som (Var "x") (Lit (-5))))
-                (Atr "x" (Som (Var "x") (Lit 1)))          
-            )
-            (Var "x") 
+          (Atr "p" (CallMethod (Var "p") "move"  (Lit 5)))
+          (Seq
+            (Atr "p" (CallMethod (Var "p") "moveZ" (Lit 7)))
+            (GetAttr (Var "p") "z")
+          )
         )
+      )
+    )
 
-
--- Instância para poder testar get e set
----instanciaP = Atr "p" (NewClasse "Ponto" [("x", Lit 10), ("y", Lit 20)])
-lerX = GetAttr (Var "p") "x"
-setarX = SetAttr (Var "p") "x" (Lit 15)
-lerXdeNovo = GetAttr (Var "p") "x"
+-- Runner
+testOO :: Termo -> IO ()
+testOO t =
+  let (resultado, novoEstado) = int [] t []
+  in do
+    putStrLn $ "Resultado: "   ++ show resultado
+    putStrLn $ "Novo estado: " ++ show novoEstado
 
 --teste Get
 ---testeGet =
@@ -366,10 +420,10 @@ lerXdeNovo = GetAttr (Var "p") "x"
 ---        setarX
 ---        lerXdeNovo)
 
+-- ==========================
+-- main
+-- ==========================
 
-
-
--- Função principal
 main :: IO ()
 main = do
     putStrLn "Teste do New:"
@@ -378,9 +432,11 @@ main = do
     putStrLn "\nTeste do while:"
     testOO testeWhile
 
-    putStrLn "\nTeste do get:"
-    testOO testeGet
+--    putStrLn "\nTeste do get:"
+--    testOO testeGet
 
-    putStrLn "\nTeste do set:"
-    testOO testeSet
-    
+--    putStrLn "\nTeste do set:"
+--    testOO testeSet
+
+    putStrLn "\nTeste de classe + herança:"
+    testOO testeClasseHeranca
