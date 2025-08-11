@@ -16,6 +16,7 @@ data TermoLinFun
 data Definicao = Def Id TermoLinFun
 type Programa   = [Definicao]
 
+def1 :: Definicao
 def1 = Def "inc" (Lambda "x" (Aplicacao (Aplicacao (Identifier "+") (Identifier "x")) (Literal 1)))
 def2 = Def "v"   (Aplicacao (Aplicacao (Identifier "+") (Literal 3)) (Literal 2))
 def3 = Def "resultado" (Aplicacao (Identifier "inc") (Identifier "v"))
@@ -115,6 +116,7 @@ instance Show Valor where
 int :: Ambiente -> Termo -> Estado -> (Valor, Estado)
 
 int a (Var x) e = (search x (a ++ e), e)
+
 int _ (Lit n) e = (Num n, e)
 
 int a (Som t u) e = (somaVal v1 v2, e2)
@@ -154,19 +156,6 @@ int a (InstanceOf objT nomeClasse) e =
                 else (Num 0, e1)
             _ -> (Num 0, e1)
     _ -> (Num 0, e)
-
--- Função para checar herança
-isInstance :: Id -> Valor -> Ambiente -> Bool
-isInstance nomeClasse (Objeto attrs _) env =
-  case lookup "__class" attrs of
-    Just (Classe maybePai _ _) ->
-      case search nomeClasse env of
-        Classe _ _ _ -> True
-        _ -> case maybePai of
-              Just paiNome -> nomeClasse == paiNome
-              Nothing      -> False
-    _ -> False
-isInstance _ _ _ = False
 
 int a (For initT condT finalT corpoT) e =
   let (_, e1) = int a initT e
@@ -308,6 +297,19 @@ int a (New nomeClasse initsT) e =
 -- =========
 -- NOVO: classes e herança
 -- =========
+
+-- Função para checar herança
+isInstance :: Id -> Valor -> Ambiente -> Bool
+isInstance nomeClasse (Objeto attrs _) env =
+  case lookup "__class" attrs of
+    Just (Classe maybePai _ _) ->
+      case search nomeClasse env of
+        Classe _ _ _ -> True
+        _ -> case maybePai of
+              Just paiNome -> nomeClasse == paiNome
+              Nothing      -> False
+    _ -> False
+isInstance _ _ _ = False
 
 -- mescla por chave (filho sobrescreve pai)
 mergeKV :: [(Id, Valor)] -> [(Id, Valor)] -> [(Id, Valor)]
