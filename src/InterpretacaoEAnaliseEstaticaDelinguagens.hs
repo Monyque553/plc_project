@@ -77,7 +77,9 @@ data Termo
   | DefFunc Id Id Termo
   -- ==== NOVOS ====
   | DefClasse Id (Maybe Id) [(Id, Termo)] [(Id, Id, Termo)] -- nome, pai, attrs default, métodos (nome, param, corpo)
-  | New Id [(Id, Termo)]                                     -- instância por nome da classe + overrides de atributos
+  | New Id [(Id, Termo)]  
+  | If Termo Termo Termo
+  | InstanceOf Termo Id                                   -- instância por nome da classe + overrides de atributos
   deriving (Eq, Show)
 
 -- Exemplos antigos
@@ -130,6 +132,41 @@ int a (Atr x t) e = (v1, wr (x,v1) e1)
 
 int a (Seq t u) e = int a u e1
   where (_,e1) = int a t e
+
+int a (If condT thenT elseT) e =
+  case int a condT e of
+    (Num v, e1) | v /= 0 -> int a thenT e1
+    (Num 0, e1)          -> int a elseT e1
+    _                    -> (Erro, e)
+
+int a (InstanceOf objT nomeClasse) e =
+  case int a objT e of
+    (Objeto attrs _, e1) ->
+      case lookup "__className" attrs of
+        Just (Classe _ _ _) -> -- não vai acontecer, classe não fica em attr, então usamos tag de classe
+          (Num 0, e1)
+        _ ->
+          case lookup "__class" attrs of
+            -- O "__class" poderia guardar o nome como Num ou String (adaptar)
+            Just (Num _) -> -- não temos suporte a string nativo, mas podemos usar tag especial
+              if isInstance nomeClasse (Objeto attrs []) (a ++ e1)
+                then (Num 1, e1)
+                else (Num 0, e1)
+            _ -> (Num 0, e1)
+    _ -> (Num 0, e)
+
+-- Função para checar herança
+isInstance :: Id -> Valor -> Ambiente -> Bool
+isInstance nomeClasse (Objeto attrs _) env =
+  case lookup "__class" attrs of
+    Just (Classe maybePai _ _) ->
+      case search nomeClasse env of
+        Classe _ _ _ -> True
+        _ -> case maybePai of
+              Just paiNome -> nomeClasse == paiNome
+              Nothing      -> False
+    _ -> False
+isInstance _ _ _ = False
 
 int a (For initT condT finalT corpoT) e =
   let (_, e1) = int a initT e
@@ -256,8 +293,6 @@ int a (New nomeClasse initsT) e =
     Nothing -> (Erro, e)
     Just chain ->
       let (baseAttrs, baseMets) = collectClassAM chain
-
-          -- avalia overrides passados no New
           (initAttrs, e1) =
             foldl
               (\(acc, est) (k, t) ->
@@ -265,11 +300,8 @@ int a (New nomeClasse initsT) e =
                   in (acc ++ [(k, v)], est'))
               ([], e)
               initsT
-
-          -- opcional: registrar a classe no objeto
-          classTag = ("__class", Num 0)
-
-          finalAttrs = mergeKV (classTag:initAttrs) baseAttrs
+          classVal = last chain  -- pega a classe mais derivada
+          finalAttrs = mergeKV (("__class", classVal) : initAttrs) baseAttrs
           finalMets  = baseMets
       in (Objeto finalAttrs finalMets, e1)
 
@@ -460,7 +492,7 @@ testOO t =
 
 main :: IO ()
 main = do
- 
+
     putStrLn "\nTeste do while:"
     testOO testeWhile
 
