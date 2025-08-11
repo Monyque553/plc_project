@@ -77,7 +77,7 @@ data Termo
   | DefFunc Id Id Termo
   -- ==== NOVOS ====
   | DefClasse Id (Maybe Id) [(Id, Termo)] [(Id, Id, Termo)] -- nome, pai, attrs default, métodos (nome, param, corpo)
-  | New Id [(Id, Termo)]                                    -- instância por nome da classe + overrides de atributos
+  | New Id [(Id, Termo)]                                     -- instância por nome da classe + overrides de atributos
   deriving (Eq, Show)
 
 -- Exemplos antigos
@@ -102,8 +102,8 @@ instance Show Valor where
   show (Num x)              = show x
   show Erro                 = "Erro"
   show (Fun _)              = "Função"
-  show (Objeto attrs _)     = "Objeto " ++ show attrs
-  show (Classe pai attrs _) = "Classe " ++ show attrs ++ " (pai=" ++ show pai ++ ")"
+  show (Objeto attrs mets)     = "Objeto " ++ show attrs ++ show (map fst mets)
+  show (Classe pai attrs mets) = "Classe " ++ show attrs ++ " Métodos: " ++ show (map fst mets) ++ " (pai=" ++ show pai ++ ")"
 
 -- ==========================
 -- Interpretador
@@ -211,20 +211,20 @@ int a (DefFunc nome param corpo) e =
 -- =========
 -- OO legado (opcional): NewClasse "manual" sem herança
 -- =========
-int a (NewClasse _ attrs mets) e =
-  let (valAttrs, eFinal) =
-        foldl
-          (\(acc, est) (nome, termo) ->
-              let (v, est') = int a termo est
-              in (acc ++ [(nome, v)], est'))
-          ([], e) attrs
-      (valMets, eFinal2) =
-        foldl
-          (\(acc, est) (nome, termo) ->
-              let (v, est') = int a termo est
-              in (acc ++ [(nome, v)], est'))
-          ([], eFinal) mets
-  in (Objeto valAttrs valMets, eFinal2)
+--int a (NewClasse _ attrs mets) e =
+ -- let (valAttrs, eFinal) =
+ --       foldl
+ --         (\(acc, est) (nome, termo) ->
+ --             let (v, est') = int a termo est
+ --             in (acc ++ [(nome, v)], est'))
+ --         ([], e) attrs
+ --     (valMets, eFinal2) =
+ --       foldl
+ --         (\(acc, est) (nome, termo) ->
+ --             let (v, est') = int a termo est
+ --             in (acc ++ [(nome, v)], est'))
+ --         ([], eFinal) mets
+ -- in (Objeto valAttrs valMets, eFinal2)
 
 -- =========
 -- NOVO: classes e herança (AS CLÁUSULAS DE `int` DEVEM VIR AQUI!)
@@ -354,6 +354,49 @@ testeWhile =
       (Var "x")
     )
 
+-- Classe sem herança
+defClasseQuadrado :: Termo
+defClasseQuadrado =
+  DefClasse "Quadrado" Nothing
+    [("lado", Lit 0)]  -- atributo lado, default 0
+    [ ("perimetro", "self",
+        -- O perímetro é a soma dos 4 lados
+        Som (Som (GetAttr (Var "self") "lado") (GetAttr (Var "self") "lado"))
+            (Som (GetAttr (Var "self") "lado") (GetAttr (Var "self") "lado"))
+      )
+    ]
+novoQuadrado :: Termo
+novoQuadrado = New "Quadrado" [("lado", Lit 5)]
+
+testeQuadrado :: Termo
+testeQuadrado =
+  Seq
+    defClasseQuadrado
+    (Seq
+      (Atr "q" novoQuadrado)
+      (CallMethod (Var "q") "perimetro" (Var "q")) -- chama q.perimetro()
+    )
+
+-- Teste para SetAttr
+testeSet :: Termo
+testeSet =
+  Seq
+    defClasseQuadrado
+    (Seq
+      (Atr "q" novoQuadrado) -- Cria um objeto 'q' com lado 5
+      (SetAttr (Var "q") "lado" (Lit 10)) -- Altera o lado para 10. O resultado do SetAttr é o objeto atualizado.
+    )
+
+-- Teste para GetAttr
+testeGet :: Termo
+testeGet =
+  Seq
+    defClasseQuadrado
+    (Seq
+      (Atr "q" novoQuadrado) -- Cria um objeto 'q' com lado 5
+      (GetAttr (Var "q") "lado") -- Lê o valor do lado. O resultado é o valor em si.
+    )
+
 -- Definições de classe e herança
 -- class Ponto { x=0, y=0; move(dx) { this.x := this.x + dx } }
 defClassePonto :: Termo
@@ -409,16 +452,7 @@ testOO t =
     putStrLn $ "Resultado: "   ++ show resultado
     putStrLn $ "Novo estado: " ++ show novoEstado
 
---teste Get
----testeGet =
----    Seq instanciaP
----        lerX
---teste set
----testeSet =
----    Seq instanciaP
----      (Seq
----        setarX
----        lerXdeNovo)
+
 
 -- ==========================
 -- main
@@ -426,17 +460,18 @@ testOO t =
 
 main :: IO ()
 main = do
-    putStrLn "Teste do New:"
----    testOO testeNew
-
+ 
     putStrLn "\nTeste do while:"
     testOO testeWhile
 
---    putStrLn "\nTeste do get:"
---    testOO testeGet
+    putStrLn "\nTeste do get:"
+    testOO testeGet
 
---    putStrLn "\nTeste do set:"
---    testOO testeSet
+    putStrLn "\nTeste do set:"
+    testOO testeSet
+
+    putStrLn "\nTeste de classe sem herança:"
+    testOO testeQuadrado
 
     putStrLn "\nTeste de classe + herança:"
     testOO testeClasseHeranca
